@@ -9,7 +9,7 @@ load_dotenv()
 app = FastAPI(title="Arka Portfolio API", version="1.0")
 
 # CORS origins (frontend)
-origins = [os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")]
+origins = [os.getenv("FRONTEND_ORIGIN")]
 
 app.add_middleware(
     CORSMiddleware,
