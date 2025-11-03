@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import os
+import asyncio
 
 router = APIRouter()
 
@@ -11,12 +12,24 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
 async def fetch_repos():
     headers = {"Accept": "application/vnd.github.v3+json"}
     if GITHUB_TOKEN:
-        headers["Authorization"] = f"token {GITHUB_TOKEN}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(GITHUB_API, headers=headers)
-        if r.status_code != 200:
-            raise HTTPException(status_code=502, detail="Failed to fetch GitHub repos")
-        return r.json()
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"  # use token if available
+
+    retries = 3  # retry a few times in case of transient Render network issues
+    for attempt in range(retries):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(GITHUB_API, headers=headers)
+                if r.status_code == 200:
+                    return r.json()
+                else:
+                    # log the exact response for debugging
+                    print(f"[Attempt {attempt+1}] GitHub error {r.status_code}: {r.text}")
+        except httpx.RequestError as e:
+            print(f"[Attempt {attempt+1}] Request error: {e}")
+        await asyncio.sleep(2 * (attempt + 1))  # exponential backoff
+
+    # if all retries fail
+    raise HTTPException(status_code=502, detail="Failed to fetch GitHub repos after retries")
 
 @router.get("/")
 async def list_repos():
@@ -30,6 +43,5 @@ async def list_repos():
             "language": repo.get("language"),
             "stargazers_count": repo.get("stargazers_count", 0),
         })
-    # sort by stargazers desc, then name (optional)
     out.sort(key=lambda x: (-x["stargazers_count"], x["name"].lower()))
     return out
